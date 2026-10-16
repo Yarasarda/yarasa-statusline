@@ -25,22 +25,22 @@ process.stdin.on('end', () => {
     text: hex('#c0caf5'), muted: hex('#565f89'), dark: hex('#1a1b26'), teal: hex('#73daca'),
   };
   const dim = s => fg(C.muted, s);
-  const sep = dim('  ┃  ');
+  const sep = `  ${fg(C.purple, '╺')}${fg(mix(C.purple, C.cyan, 0.5), '━')}${fg(C.cyan, '╸')}  `;
 
   // Usage color: green → yellow → red
   const heat = p => (p < 50 ? mix(C.green, C.yellow, p / 50) : mix(C.yellow, C.red, Math.min(1, (p - 50) / 40)));
 
   // Smooth bar with eighth-blocks, each cell colored by its own position
-  const BAR = 10;
+  const BAR = 8;
   const PARTS = ['', '▏', '▎', '▍', '▌', '▋', '▊', '▉'];
-  const bar = (label, v) => {
+  const bar = (label, v, width = BAR) => {
     if (typeof v !== 'number') return null;
     const p = Math.max(0, Math.min(100, v));
-    const eighths = Math.round((p / 100) * BAR * 8);
+    const eighths = Math.round((p / 100) * width * 8);
     let out = '';
-    for (let i = 0; i < BAR; i++) {
+    for (let i = 0; i < width; i++) {
       const fill = Math.max(0, Math.min(8, eighths - i * 8));
-      const col = heat(((i + 0.5) / BAR) * 100);
+      const col = heat(((i + 0.5) / width) * 100);
       out += fill === 8 ? fg(col, '█') : fill > 0 ? fg(col, PARTS[fill]) : dim('─');
     }
     return `${dim(label)} ${out} ${fg(heat(p), Math.round(p) + '%', true)}`;
@@ -86,6 +86,26 @@ process.stdin.on('end', () => {
   }
   l1.push(`${fg(C.blue, '▸')} ${fg(C.blue, path.basename(cwd) || cwd, true)}`);
 
+  // Session cost, duration and burn rate (shown next to the context bar on line 3)
+  const cost = d.cost || {};
+  const session = [];
+  if (typeof cost.total_cost_usd === 'number') session.push(fg(C.yellow, `$${cost.total_cost_usd.toFixed(2)}`, true));
+  if (typeof cost.total_duration_ms === 'number') {
+    const m = Math.floor(cost.total_duration_ms / 60000);
+    session.push(fg(C.cyan, `⏱ ${m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`}`));
+    if (typeof cost.total_cost_usd === 'number' && m >= 5)
+      session.push(fg(C.orange, `🔥$${(cost.total_cost_usd / (m / 60)).toFixed(2)}/h`));
+  }
+
+  // Clock with the real moon phase; color drifts from night purple to day yellow
+  const now = new Date();
+  const lunation = (((now - Date.UTC(2000, 0, 6, 18, 14)) / 864e5) % 29.530588 + 29.530588) % 29.530588;
+  const moon = ['🌑', '🌒', '🌓', '🌔', '🌕', '🌖', '🌗', '🌘'][Math.round((lunation / 29.530588) * 8) % 8];
+  const hour = now.getHours() + now.getMinutes() / 60;
+  const daylight = Math.max(0, Math.sin(((hour - 6) / 12) * Math.PI));
+  const hhmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  l1.push(`${moon} ${fg(mix(C.purple, C.yellow, daylight), hhmm, true)}`);
+
   // --- Line 2: git status ---
   const git = (...args) =>
     execFileSync('git', args, { cwd, encoding: 'utf8', timeout: 1500, stdio: ['ignore', 'pipe', 'ignore'] });
@@ -111,10 +131,12 @@ process.stdin.on('end', () => {
     if (untracked) dirty.push(dim(`?${untracked}`));
     if (conflicts) dirty.push(fg(C.red, `✖${conflicts}`, true));
     parts.push(dirty.length ? dirty.join(' ') : fg(C.green, '✔ clean'));
+    if (cost.total_lines_added || cost.total_lines_removed)
+      parts.push(`${fg(C.green, `+${cost.total_lines_added || 0}`)}${dim('/')}${fg(C.red, `-${cost.total_lines_removed || 0}`)}`);
     let last = '';
     try {
       const [msg, age] = git('log', '-1', '--format=%s%x00%cr').trim().split('\0');
-      const short = msg.length > 40 ? msg.slice(0, 39) + '…' : msg;
+      const short = msg.length > 34 ? msg.slice(0, 33) + '…' : msg;
       last = sep + dim('✎ ') + fg(C.text, `"${short}"`) + dim(` · ${age}`);
     } catch {}
     l2 = parts.join(' ') + last;
@@ -122,33 +144,49 @@ process.stdin.on('end', () => {
     l2 = dim('⎇ not a git repo');
   }
 
-  // --- Line 3: usage and session info ---
-  const l3 = [
-    bar('ctx', d.context_window?.used_percentage),
+  // --- Line 3: context (wide bar) and session; line 4: rate limits ---
+  const kfmt = n => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : Math.round(n / 1000) + 'k');
+  const ctxBar = (() => {
+    const cw = d.context_window || {};
+    const b = bar('ctx', cw.used_percentage, BAR * 2);
+    if (!b) return null;
+    const size = cw.context_window_size;
+    const used = typeof cw.total_input_tokens === 'number' ? cw.total_input_tokens
+      : typeof size === 'number' ? (size * cw.used_percentage) / 100 : null;
+    const tokens = typeof used === 'number' && typeof size === 'number' ? ' ' + dim(`${kfmt(used)}/${kfmt(size)}`) : '';
+    return b + tokens + (cw.used_percentage >= 80 ? ' ' + fg(C.red, '⚠', true) : '');
+  })();
+  const l3 = [ctxBar, session.join(' ')].filter(Boolean);
+  const l4 = [
     limitBar('5h', d.rate_limits?.five_hour),
     limitBar('7d', d.rate_limits?.seven_day),
   ].filter(Boolean);
-  const cost = d.cost || {};
-  const session = [];
-  if (typeof cost.total_cost_usd === 'number') session.push(fg(C.yellow, `$${cost.total_cost_usd.toFixed(2)}`, true));
-  if (typeof cost.total_duration_ms === 'number') {
-    const m = Math.floor(cost.total_duration_ms / 60000);
-    session.push(fg(C.cyan, `⏱ ${m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`}`));
-  }
-  if (cost.total_lines_added || cost.total_lines_removed)
-    session.push(`${fg(C.green, `+${cost.total_lines_added || 0}`)}${dim('/')}${fg(C.red, `-${cost.total_lines_removed || 0}`)}`);
-  if (session.length) l3.push(session.join(' '));
 
-  // 3-line bat on the left: gradient wings, glowing eyes, tree connectors
+  // Bat on the left: gradient wings, glowing eyes that pulse and sometimes blink, twinkling stars below.
+  // The status line refreshes every few seconds, so the frame is picked from the clock.
+  const tick = Math.floor(Date.now() / 5000);
+  const blink = tick % 7 === 0;
+  const eye = mix(C.yellow, C.orange, (Math.sin(tick * 1.3) + 1) / 2);
   const batRows = [' /\\_     _/\\ ', '/   \\^o^/   \\', '\\_/\\_/ \\_/\\_/'];
   const bat = batRows.map((row, r) => {
     if (r !== 1) return gradient(row, C.purple, C.pink, true);
-    const [left, face, right] = [row.slice(0, 5), row.slice(5, 8), row.slice(8)];
+    const [left, right] = [row.slice(0, 5), row.slice(8)];
+    const e = blink ? '-' : '^';
     return gradient(left, C.purple, mix(C.purple, C.pink, 0.4), true)
-      + fg(C.yellow, face[0], true) + fg(C.red, face[1], true) + fg(C.yellow, face[2], true)
+      + fg(eye, e, true) + fg(C.red, 'o', true) + fg(eye, e, true)
       + gradient(right, mix(C.purple, C.pink, 0.6), C.pink, true);
   });
-  const tree = ['╭─', '├─', '╰─'].map((t, i) => fg(mix(C.purple, C.cyan, i / 2), t));
-  const lines = [l1.join(sep), l2, l3.join(sep)];
-  process.stdout.write(lines.map((l, i) => `${bat[i]} ${tree[i]} ${l}`).join('\n'));
+  // Night sky under the bat: each star slot twinkles on its own rhythm
+  const stars = [...'  ✦   ·   ✧  '].map((ch, i) => {
+    if (ch === ' ') return ch;
+    const t = (Math.sin(tick * 0.9 + i * 2.1) + 1) / 2;
+    return fg(mix(C.muted, i % 2 ? C.cyan : C.yellow, t), t < 0.25 ? '·' : ch, t > 0.7);
+  }).join('');
+  bat.push(stars);
+  // Line 4 only exists when there are rate limits (subscription plans)
+  const lines = [l1.join(sep), l2, l3.join(sep), l4.join(sep)].filter((l, i) => i < 3 || l);
+  const tree = lines.map((_, i) => fg(mix(C.purple, C.cyan, i / (lines.length - 1)),
+    i === 0 ? '╭─' : i === lines.length - 1 ? '╰─' : '├─'));
+  // Each line starts with a reset code: Claude Code trims leading spaces, which shifted the bat's first row left.
+  process.stdout.write(lines.map((l, i) => `\x1b[0m${bat[i]} ${tree[i]} ${l}`).join('\n'));
 });
