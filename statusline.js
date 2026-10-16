@@ -11,7 +11,7 @@ process.stdin.on('end', () => {
   const dim = s => c('2', s);
   const sep = dim('  │  ');
 
-  // Doluluk oranına göre renk: yeşil → sarı → kırmızı
+  // Color by usage: green → yellow → red
   const heat = p => (p < 50 ? '32' : p < 80 ? '33' : '31');
   const bar = (label, v) => {
     if (typeof v !== 'number') return null;
@@ -20,7 +20,7 @@ process.stdin.on('end', () => {
     return `${dim(label)} ${c(heat(p), '█'.repeat(filled))}${dim('░'.repeat(10 - filled))} ${c('1;' + heat(p), p + '%')}`;
   };
 
-  // --- Satır 1: model, efor, ajan, klasör ---
+  // --- Line: model, efor, ajan, klasör ---
   const effortColor = { low: '36', medium: '34', high: '35', xhigh: '1;35', max: '1;31' };
   const cwd = d.workspace?.current_dir || d.cwd || process.cwd();
   const l1 = [c('1;36', d.model?.display_name || '?')];
@@ -28,7 +28,7 @@ process.stdin.on('end', () => {
   if (d.agent?.name) l1.push(`🤖 ${c('1;33', d.agent.name)}`);
   l1.push(`📁 ${c('1;34', path.basename(cwd) || cwd)}`);
 
-  // --- Satır 2: git durumu ---
+  // --- Line: git durumu ---
   const git = (...args) =>
     execFileSync('git', args, { cwd, encoding: 'utf8', timeout: 1500, stdio: ['ignore', 'pipe', 'ignore'] });
   let l2;
@@ -52,7 +52,7 @@ process.stdin.on('end', () => {
     if (modified) dirty.push(c('33', `✚${modified}`));
     if (untracked) dirty.push(c('90', `?${untracked}`));
     if (conflicts) dirty.push(c('1;31', `✖${conflicts}`));
-    parts.push(dirty.length ? dirty.join(' ') : c('32', '✔ temiz'));
+    parts.push(dirty.length ? dirty.join(' ') : c('32', '✔ clean'));
     let last = '';
     try {
       const [msg, age] = git('log', '-1', '--format=%s%x00%cr').trim().split('\0');
@@ -61,10 +61,10 @@ process.stdin.on('end', () => {
     } catch {}
     l2 = parts.join(' ') + last;
   } catch {
-    l2 = dim('git deposu değil');
+    l2 = dim('not a git repo');
   }
 
-  // --- Satır 3: kullanım ve oturum bilgisi ---
+  // --- Line: kullanım ve oturum bilgisi ---
   const l3 = [
     bar('ctx', d.context_window?.used_percentage),
     bar('5h', d.rate_limits?.five_hour?.used_percentage),
@@ -75,13 +75,13 @@ process.stdin.on('end', () => {
   if (typeof cost.total_cost_usd === 'number') session.push(c('33', `$${cost.total_cost_usd.toFixed(2)}`));
   if (typeof cost.total_duration_ms === 'number') {
     const m = Math.floor(cost.total_duration_ms / 60000);
-    session.push(c('36', `⏱ ${m >= 60 ? `${Math.floor(m / 60)}sa ${m % 60}dk` : `${m}dk`}`));
+    session.push(c('36', `⏱ ${m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`}`));
   }
   if (cost.total_lines_added || cost.total_lines_removed)
     session.push(`${c('32', `+${cost.total_lines_added || 0}`)}${dim('/')}${c('31', `-${cost.total_lines_removed || 0}`)}`);
   if (session.length) l3.push(session.join(' '));
 
-  // Sol tarafta 3 satırlık yarasa
+  // 3-line bat on the left
   const bat = [' /\\_     _/\\ ', '/   \\^o^/   \\', '\\_/\\_/ \\_/\\_/'].map(s => c('1;35', s));
   const lines = [l1.join(sep), l2, l3.join(sep)];
   process.stdout.write(lines.map((l, i) => `${bat[i]}  ${l}`).join('\n'));
