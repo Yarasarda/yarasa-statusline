@@ -2,11 +2,7 @@
 
 A colorful 3-line status line for [Claude Code](https://claude.com/claude-code), with a bat.
 
-```
- /\_     _/\   Opus 5.5  │  ⚡ high  │  📁 my-project
-/   \^o^/   \  ⎇ main ↑1 ●2 ✚1 ?3  │  ✎ "fix login bug" · 2 hours ago
-\_/\_/ \_/\_/  ctx ██░░░░░░░░ 21%  │  5h ██████░░░░ 64%  │  7d █████████░ 88%  │  $1.23 ⏱ 1h 15m +156/-23
-```
+![yarasa-statusline preview](docs/preview.svg)
 
 - **Line 1:** model, effort level, agent name (with `--agent`), current folder
 - **Line 2:** git branch, ahead/behind, staged/modified/untracked/conflicts, last commit
