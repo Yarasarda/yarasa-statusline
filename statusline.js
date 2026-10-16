@@ -20,12 +20,42 @@ process.stdin.on('end', () => {
     return `${dim(label)} ${c(heat(p), '█'.repeat(filled))}${dim('░'.repeat(10 - filled))} ${c('1;' + heat(p), p + '%')}`;
   };
 
+  // Time until a rate-limit window resets (resets_at is unix seconds)
+  const resetIn = ts => {
+    if (typeof ts !== 'number') return '';
+    const m = Math.max(0, Math.round((ts * 1000 - Date.now()) / 60000));
+    const txt = m >= 1440 ? `${Math.floor(m / 1440)}d ${Math.floor((m % 1440) / 60)}h`
+      : m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`;
+    return ' ' + dim('↻ ' + txt);
+  };
+  const limitBar = (label, w) => {
+    const b = bar(label, w?.used_percentage);
+    return b && b + resetIn(w?.resets_at);
+  };
+
+  // Running subagents, written by subagent-statusline.js for this session
+  const agents = (() => {
+    try {
+      const fs = require('fs');
+      const os = require('os');
+      const f = path.join(os.tmpdir(), `claude-agents-${d.session_id}.json`);
+      const s = JSON.parse(fs.readFileSync(f, 'utf8'));
+      if (Date.now() - s.t > 15000) return [];
+      return s.tasks.filter(t => t.status === 'running');
+    } catch { return []; }
+  })();
+
   // --- Line: model, efor, ajan, klasör ---
   const effortColor = { low: '36', medium: '34', high: '35', xhigh: '1;35', max: '1;31' };
   const cwd = d.workspace?.current_dir || d.cwd || process.cwd();
   const l1 = [c('1;36', d.model?.display_name || '?')];
   if (d.effort?.level) l1.push(`⚡ ${c(effortColor[d.effort.level] || '37', d.effort.level)}`);
   if (d.agent?.name) l1.push(`🤖 ${c('1;33', d.agent.name)}`);
+  if (agents.length) {
+    const names = agents.map(a => a.name || a.agentType || 'agent');
+    const shown = names.slice(0, 3).join(', ') + (names.length > 3 ? ` +${names.length - 3}` : '');
+    l1.push(`👥 ${c('1;33', agents.length)} ${dim(shown)}`);
+  }
   l1.push(`📁 ${c('1;34', path.basename(cwd) || cwd)}`);
 
   // --- Line: git durumu ---
@@ -67,8 +97,8 @@ process.stdin.on('end', () => {
   // --- Line: kullanım ve oturum bilgisi ---
   const l3 = [
     bar('ctx', d.context_window?.used_percentage),
-    bar('5h', d.rate_limits?.five_hour?.used_percentage),
-    bar('7d', d.rate_limits?.seven_day?.used_percentage),
+    limitBar('5h', d.rate_limits?.five_hour),
+    limitBar('7d', d.rate_limits?.seven_day),
   ].filter(Boolean);
   const cost = d.cost || {};
   const session = [];
