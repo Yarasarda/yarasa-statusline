@@ -9,7 +9,7 @@ process.stdin.on('data', d => (raw += d));
 process.stdin.on('end', () => {
   try {
     const d = JSON.parse(raw);
-    const tasks = (d.tasks || []).map(t => ({ name: t.name, agentType: t.agentType, status: t.status }));
+    const tasks = (d.tasks || []).map(t => ({ name: t.name || t.description, agentType: t.agentType, status: t.status, label: t.label, tokens: t.tokenCount }));
     const f = path.join(os.tmpdir(), `claude-agents-${d.session_id}.json`);
     fs.writeFileSync(f, JSON.stringify({ t: Date.now(), tasks }));
   } catch {}

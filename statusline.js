@@ -63,6 +63,11 @@ process.stdin.on('end', () => {
     return b && b + resetIn(w?.resets_at);
   };
 
+  // Latest rate limits, so an agent in this session can check how close the 5h/7d windows are.
+  try {
+    if (d.rate_limits) fs.writeFileSync(path.join(os.tmpdir(), 'claude-limits.json'), JSON.stringify({ t: Date.now(), ...d.rate_limits }));
+  } catch {}
+
   // Running subagents, written by subagent-statusline.js for this session
   const agents = (() => {
     try {
@@ -196,9 +201,10 @@ process.stdin.on('end', () => {
     for (const a of agents) {
       const name = String(a.name || a.agentType || 'agent');
       const n = name.length > 28 ? name.slice(0, 27) + '…' : name;
-      if (cur.length && len + n.length + 4 > width) { agentLines.push(cur.join(dim(' · '))); cur = []; len = 0; }
-      cur.push(`${fg(C.orange, spin)} ${fg(C.text, n)}`);
-      len += n.length + 5;
+      const tk = typeof a.tokens === 'number' ? kfmt(a.tokens) : '';
+      if (cur.length && len + n.length + tk.length + 5 > width) { agentLines.push(cur.join(dim(' · '))); cur = []; len = 0; }
+      cur.push(`${fg(C.orange, spin)} ${fg(C.text, n)}${tk ? ' ' + dim(tk) : ''}`);
+      len += n.length + tk.length + 6;
     }
     if (cur.length) agentLines.push(cur.join(dim(' · ')));
   }
