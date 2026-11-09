@@ -8,6 +8,10 @@ process.stdin.on('data', d => (raw += d));
 process.stdin.on('end', () => {
   let d = {};
   try { d = JSON.parse(raw); } catch {}
+  // Son limit değerleri dosyaya yazılır; oturumdaki betikler (ör. "limit %98'de commit at") okuyabilsin.
+  if (d.rate_limits) {
+    try { fs.writeFileSync(path.join(os.homedir(), '.claude', 'cache', 'rate-limits.json'), JSON.stringify({ at: Date.now(), ...d.rate_limits })); } catch {}
+  }
 
   // --- Truecolor helpers ---
   const hex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
@@ -65,7 +69,8 @@ process.stdin.on('end', () => {
       const f = path.join(os.tmpdir(), `claude-agents-${d.session_id}.json`);
       const s = JSON.parse(fs.readFileSync(f, 'utf8'));
       if (Date.now() - s.t > 15000) return [];
-      return s.tasks.filter(t => t.status === 'running');
+      const done = ['completed', 'failed', 'killed', 'stopped', 'cancelled', 'error'];
+      return s.tasks.filter(t => !done.includes(String(t.status || '').toLowerCase()));
     } catch { return []; }
   })();
 
@@ -81,7 +86,7 @@ process.stdin.on('end', () => {
   if (d.agent?.name) l1.push(`${fg(C.yellow, '◆')} ${fg(C.yellow, d.agent.name, true)}`);
   if (agents.length) {
     const names = agents.map(a => a.name || a.agentType || 'agent');
-    const shown = names.slice(0, 3).join(', ') + (names.length > 3 ? ` +${names.length - 3}` : '');
+    const shown = names.slice(0, 7).join(', ') + (names.length > 7 ? ` +${names.length - 7}` : '');
     l1.push(`${fg(C.orange, '⚙')} ${fg(C.orange, agents.length, true)} ${dim(shown)}`);
   }
   l1.push(`${fg(C.blue, '▸')} ${fg(C.blue, path.basename(cwd) || cwd, true)}`);
