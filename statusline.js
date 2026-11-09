@@ -85,9 +85,7 @@ process.stdin.on('end', () => {
   }
   if (d.agent?.name) l1.push(`${fg(C.yellow, '◆')} ${fg(C.yellow, d.agent.name, true)}`);
   if (agents.length) {
-    const names = agents.map(a => a.name || a.agentType || 'agent');
-    const shown = names.slice(0, 7).join(', ') + (names.length > 7 ? ` +${names.length - 7}` : '');
-    l1.push(`${fg(C.orange, '⚙')} ${fg(C.orange, agents.length, true)} ${dim(shown)}`);
+    l1.push(`${fg(C.orange, '⚙')} ${fg(C.orange, agents.length, true)} ${dim(agents.length === 1 ? 'agent' : 'agents')}`);
   }
   l1.push(`${fg(C.blue, '▸')} ${fg(C.blue, path.basename(cwd) || cwd, true)}`);
 
@@ -189,7 +187,23 @@ process.stdin.on('end', () => {
   }).join('');
   bat.push(stars);
   // Line 4 only exists when there are rate limits (subscription plans)
-  const lines = [l1.join(sep), l2, l3.join(sep), l4.join(sep)].filter((l, i) => i < 3 || l);
+  // Running subagents get their own line(s) under the limits: every name, wrapped to the terminal width.
+  const agentLines = [];
+  if (agents.length) {
+    const spin = ['◐', '◓', '◑', '◒'][tick % 4];
+    const width = Math.max(40, (process.stdout.columns || +process.env.COLUMNS || 120) - 20);
+    let cur = [], len = 0;
+    for (const a of agents) {
+      const name = String(a.name || a.agentType || 'agent');
+      const n = name.length > 28 ? name.slice(0, 27) + '…' : name;
+      if (cur.length && len + n.length + 4 > width) { agentLines.push(cur.join(dim(' · '))); cur = []; len = 0; }
+      cur.push(`${fg(C.orange, spin)} ${fg(C.text, n)}`);
+      len += n.length + 5;
+    }
+    if (cur.length) agentLines.push(cur.join(dim(' · ')));
+  }
+  const lines = [l1.join(sep), l2, l3.join(sep), l4.join(sep)].filter((l, i) => i < 3 || l).concat(agentLines);
+  while (bat.length < lines.length) bat.push(' '.repeat(13));
   const tree = lines.map((_, i) => fg(mix(C.purple, C.cyan, i / (lines.length - 1)),
     i === 0 ? '╭─' : i === lines.length - 1 ? '╰─' : '├─'));
   // Each line starts with a reset code: Claude Code trims leading spaces, which shifted the bat's first row left.
